@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
-use tauri::{Manager, State};
+use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 use transmute::{
     html_to_text, open_epub_project, open_epub_project_file, write_epub, write_epub_project_file,
     Book, Chapter, EpubProject, EpubResource, ManifestItem, Metadata,
@@ -903,7 +903,7 @@ fn split_txt_chapters(text: &str, fallback_title: &str) -> Vec<Chapter> {
     for line in normalized.lines() {
         let trimmed = line.trim();
         if is_txt_chapter_heading(trimmed) {
-            if saw_heading || current_body.iter().any(|line| !line.trim().is_empty()) {
+            if current_body.iter().any(|line| !line.trim().is_empty()) {
                 push_txt_chapter(&mut chapters, &current_title, &current_body);
                 current_body.clear();
             }
@@ -2043,9 +2043,13 @@ fn inject_preview_defaults(html: &str) -> String {
     let defaults = r#"<style data-ficbase-preview="true">
 :root { color-scheme: light; }
 html { background: #ffffff; }
-body { box-sizing: border-box !important; width: 100% !important; min-height: 100vh; margin: 0 !important; padding: 40px clamp(28px, 5vw, 72px) 64px !important; line-height: 1.72; color: #1d2524; }
+body { box-sizing: border-box !important; width: 100% !important; min-height: 100vh; margin: 0 !important; padding: 40px clamp(28px, 5vw, 72px) 64px !important; color: #1d2524; font-family: "Songti SC", STSong, "Noto Serif CJK SC", "Source Han Serif SC", "Times New Roman", serif; font-size: 16px; line-height: 1.72; }
 img, svg { max-width: 100%; height: auto; }
-.ficbase-annotation { --ficbase-annotation-line: #1f8a64; border-bottom: 1.5px dashed var(--ficbase-annotation-line) !important; background: transparent !important; text-decoration: none !important; cursor: help; }
+.ficbase-annotation { --ficbase-annotation-line: #1f8a64; --ficbase-annotation-marker: #1f8a64; position: relative; border-bottom: 1.5px dashed var(--ficbase-annotation-line) !important; background: transparent !important; text-decoration: none !important; cursor: help; }
+.ficbase-annotation[data-note]::after { display: inline-block; width: .62em; height: .62em; margin-left: .12em; border-radius: 999px; background: var(--ficbase-annotation-marker); vertical-align: super; content: ""; }
+.ficbase-annotation[data-note]::before { position: absolute; z-index: 8; bottom: calc(100% + 7px); left: 50%; display: none; width: max-content; max-width: min(280px, 72vw); padding: .62em .72em !important; border: 1px solid #cfe0d7; border-radius: 8px; background: #fffefb; color: #20322d !important; box-shadow: 0 12px 32px rgba(24, 48, 40, .18); font: 400 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; letter-spacing: 0 !important; text-align: left !important; white-space: normal !important; transform: translateX(-50%) !important; content: attr(data-note); }
+.ficbase-annotation[data-note]:hover::before, .ficbase-annotation[data-note]:focus::before { display: block; }
+.ficbase-annotation:focus { outline: 2px solid rgba(31, 138, 100, .24); outline-offset: 2px; }
 .ficbase-note-ref { --ficbase-annotation-marker: #1f8a64; position: relative !important; display: inline-grid !important; place-items: center !important; box-sizing: border-box !important; width: 14px !important; min-width: 14px !important; max-width: 14px !important; height: 14px !important; min-height: 14px !important; max-height: 14px !important; padding: 0 !important; margin-inline: .12em .08em !important; border-radius: 999px !important; background: var(--ficbase-annotation-marker) !important; color: #fff !important; font: 800 10px/14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; letter-spacing: 0 !important; word-spacing: normal !important; text-indent: 0 !important; text-align: center !important; text-decoration: none !important; vertical-align: super !important; overflow: visible !important; transform: none !important; cursor: pointer; }
 .ficbase-note-ref:focus { outline: 2px solid color-mix(in srgb, var(--ficbase-annotation-marker) 28%, transparent); outline-offset: 2px; }
 .ficbase-note-ref::before { content: attr(data-note-index); color: #fff !important; font: 800 10px/14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; text-indent: 0 !important; }
@@ -2058,14 +2062,6 @@ img, svg { max-width: 100%; height: auto; }
 .ficbase-notes p { margin: .45em 0; }
 </style>"#;
 
-    if let Some(head_end) = html.find("</head>") {
-        let mut output = String::with_capacity(html.len() + defaults.len());
-        output.push_str(&html[..head_end]);
-        output.push_str(defaults);
-        output.push_str(&html[head_end..]);
-        return output;
-    }
-
     if let Some(head_start) = html.find("<head") {
         if let Some(head_tag_end) = html[head_start..].find('>') {
             let insert_at = head_start + head_tag_end + 1;
@@ -2075,6 +2071,14 @@ img, svg { max-width: 100%; height: auto; }
             output.push_str(&html[insert_at..]);
             return output;
         }
+    }
+
+    if let Some(head_end) = html.find("</head>") {
+        let mut output = String::with_capacity(html.len() + defaults.len());
+        output.push_str(&html[..head_end]);
+        output.push_str(defaults);
+        output.push_str(&html[head_end..]);
+        return output;
     }
 
     format!("{defaults}\n{html}")
@@ -2906,6 +2910,20 @@ mod tests {
     }
 
     #[test]
+    fn txt_chapter_split_uses_detailed_title_after_generic_heading() {
+        let chapters = split_txt_chapters(
+            "第一章：\n第一章 星港\n　　正文第一段。\n\n第二章：\n第二章 潮汐\n　　正文第二段。",
+            "高天之上",
+        );
+
+        assert_eq!(chapters.len(), 2);
+        assert_eq!(chapters[0].title, "第一章 星港");
+        assert!(chapters[0].body.starts_with("　　正文第一段。"));
+        assert_eq!(chapters[1].title, "第二章 潮汐");
+        assert!(chapters.iter().all(|chapter| !chapter.body.trim().is_empty()));
+    }
+
+    #[test]
     fn txt_import_preface_uses_preface_path_not_chapter1() {
         let book = Book {
             metadata: Metadata {
@@ -3091,6 +3109,15 @@ pub fn run() {
     tauri::Builder::default()
         .manage(EditorState::default())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            if app.get_webview_window("main").is_none() {
+                WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+                    .inner_size(1280.0, 820.0)
+                    .min_inner_size(980.0, 680.0)
+                    .build()?;
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             open_epub,
             import_book,

@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent } from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent,
+  TouchEvent as ReactTouchEvent,
+  UIEvent as ReactUIEvent,
+  WheelEvent as ReactWheelEvent,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   AlertTriangle,
@@ -9,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Code2,
+  Download,
   FileCode2,
   FileImage,
   FileText,
@@ -22,10 +29,10 @@ import {
   PanelRightOpen,
   Palette,
   Plus,
-  Save,
   Search,
   Trash2,
   Type,
+  Upload,
   X,
 } from "lucide-react";
 import "./App.css";
@@ -214,6 +221,10 @@ const defaultTemplateDesignerDraft: TemplateDesignerDraft = {
   html: defaultTemplateDesignerHtml,
   customCss: "",
 };
+const PREVIEW_AUTO_ADVANCE_THRESHOLD_PX = 28;
+const PREVIEW_AUTO_ADVANCE_COOLDOWN_MS = 900;
+const PREVIEW_SCROLL_INTENT_WINDOW_MS = 1400;
+const PREVIEW_AUTO_ADVANCE_SETTLE_MS = 1200;
 
 function App() {
   const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
@@ -280,16 +291,25 @@ function App() {
   const showLinkedStylesPanel = !readingMode && stylesPanelOpen && !!selectedResource && canPreview(selectedResource);
   const metadataDirty = project ? !sameMetadata(project.metadata, metadata) : false;
   const showMetadataPanel = selectedResource?.kind === "metadata";
-  const selectedCanDeleteHtml = canDeleteHtml(selectedResource);
   const showApplyChapterFormatAction = false;
   const showEditorActions = !templateDesignerOpen && !readingMode && (contentDirty || stylesDirty);
   const canSaveChapterTemplate = !!project && viewMode === "visual" && isDocumentFormatResource(selectedResource);
-  const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const previewScrollRef = useRef<HTMLDivElement | null>(null);
   const visualResourceUrlsRef = useRef<VisualResourceUrl[]>([]);
   const readerCacheRef = useRef<Map<string, ReaderCacheEntry>>(new Map());
   const readerPrefetchingRef = useRef<Set<string>>(new Set());
   const resourceLoadIdRef = useRef(0);
   const selectedPathRef = useRef<string | null>(null);
+  const selectedResourceRef = useRef<ResourceItem | null>(null);
+  const nextReaderResourceRef = useRef<ResourceItem | null>(null);
+  const viewModeRef = useRef<ViewMode>("preview");
+  const previewBusyRef = useRef(false);
+  const previewTouchStartYRef = useRef<number | null>(null);
+  const previewDownScrollIntentAtRef = useRef(0);
+  const previewLastScrollTopRef = useRef(0);
+  const previewAutoAdvanceLockedRef = useRef(false);
+  const previewAutoAdvanceRef = useRef<{ key: string; time: number } | null>(null);
+  const navigateReaderResourceRef = useRef<(path: string) => Promise<void>>(async () => {});
   const previewRenderKeyRef = useRef("");
   const visualRenderKeyRef = useRef("");
   const manifestMenuResource = useMemo(
@@ -354,6 +374,36 @@ function App() {
   useEffect(() => {
     selectedPathRef.current = selectedPath;
   }, [selectedPath]);
+
+  useEffect(() => {
+    selectedResourceRef.current = selectedResource;
+    nextReaderResourceRef.current = nextReaderResource;
+    viewModeRef.current = viewMode;
+    previewBusyRef.current = previewBusy;
+  }, [nextReaderResource, previewBusy, selectedResource, viewMode]);
+
+  useEffect(() => {
+    navigateReaderResourceRef.current = navigateReaderResource;
+  });
+
+  useEffect(() => {
+    const scrollElement = previewScrollRef.current;
+    if (scrollElement) {
+      scrollElement.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    }
+
+    previewAutoAdvanceRef.current = null;
+    previewTouchStartYRef.current = null;
+    previewDownScrollIntentAtRef.current = 0;
+    previewLastScrollTopRef.current = 0;
+
+    const timer = window.setTimeout(() => {
+      previewAutoAdvanceLockedRef.current = false;
+      previewDownScrollIntentAtRef.current = 0;
+    }, PREVIEW_AUTO_ADVANCE_SETTLE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [previewDocumentHtml, selectedPath]);
 
   useEffect(() => {
     setReaderTitles({});
@@ -520,27 +570,6 @@ function App() {
 
     window.addEventListener("keydown", handleChapterNavigation);
     return () => window.removeEventListener("keydown", handleChapterNavigation);
-  }, [nextReaderResource, previousReaderResource, readingMode]);
-
-  useEffect(() => {
-    function handlePreviewMessage(event: MessageEvent) {
-      if (event.source !== previewFrameRef.current?.contentWindow) return;
-      if (!isPreviewKeyMessage(event.data)) return;
-
-      if (readingMode && event.data.key === "Escape") {
-        setReadingMode(false);
-        return;
-      }
-
-      if (event.data.key === "ArrowLeft" && previousReaderResource) {
-        void navigateReaderResource(previousReaderResource.path);
-      } else if (event.data.key === "ArrowRight" && nextReaderResource) {
-        void navigateReaderResource(nextReaderResource.path);
-      }
-    }
-
-    window.addEventListener("message", handlePreviewMessage);
-    return () => window.removeEventListener("message", handlePreviewMessage);
   }, [nextReaderResource, previousReaderResource, readingMode]);
 
   useEffect(() => {
@@ -933,31 +962,6 @@ function App() {
     setStatus({ key: "status.savedTemplate", params: { name } });
   }
 
-  async function closeProject() {
-    if (!canLeaveCurrentResource()) return;
-    resourceLoadIdRef.current += 1;
-    await run(() => invoke("close_project"));
-    setProject(null);
-    setSelectedPath(null);
-    setContent("");
-    setSavedContent("");
-    setPreviewHtml("");
-    setLinkedStyles([]);
-    setSelectedStylePath(null);
-    setStyleDrafts({});
-    setSavedStyleDrafts({});
-    setStylesPanelOpen(false);
-    setTemplateDesignerOpen(false);
-    setReadingMode(false);
-    readerCacheRef.current.clear();
-    readerPrefetchingRef.current.clear();
-    previewRenderKeyRef.current = "";
-    visualRenderKeyRef.current = "";
-    setVisualEditorHtml("");
-    setVisualResourceUrls([]);
-    setStatus({ key: "status.ready" });
-  }
-
   async function loadResource(
     path: string,
     currentProject = project,
@@ -1329,6 +1333,36 @@ function App() {
     setPreviewBusy(false);
   }
 
+  async function advanceToNextReaderResourceFromScroll() {
+    if (previewAutoAdvanceLockedRef.current) return false;
+
+    const currentPath = selectedPathRef.current;
+    const currentResource = selectedResourceRef.current;
+    const nextResource = nextReaderResourceRef.current;
+    if (!currentPath || !currentResource || viewModeRef.current !== "preview" || !canPreview(currentResource)) {
+      return false;
+    }
+    if (!nextResource || previewBusyRef.current) return false;
+
+    const key = `${currentPath}->${nextResource.path}`;
+    const now = Date.now();
+    const previousAdvance = previewAutoAdvanceRef.current;
+    if (previousAdvance?.key === key && now - previousAdvance.time < PREVIEW_AUTO_ADVANCE_COOLDOWN_MS) {
+      return true;
+    }
+
+    previewAutoAdvanceRef.current = { key, time: now };
+    previewAutoAdvanceLockedRef.current = true;
+    previewDownScrollIntentAtRef.current = 0;
+    previewTouchStartYRef.current = null;
+    await navigateReaderResourceRef.current(nextResource.path);
+    window.setTimeout(() => {
+      previewAutoAdvanceLockedRef.current = false;
+      previewDownScrollIntentAtRef.current = 0;
+    }, PREVIEW_AUTO_ADVANCE_SETTLE_MS);
+    return true;
+  }
+
   function applyReaderResource(resource: ResourceItem, entry: ReaderCacheEntry) {
     setSelectedPath(resource.path);
     setContent(entry.content);
@@ -1527,51 +1561,100 @@ function App() {
     await deleteHtmlResource(manifestMenuResource.path);
   }
 
-  function syncPreviewHeight() {
-    const frame = previewFrameRef.current;
-    let doc: Document | null | undefined;
-    try {
-      doc = frame?.contentDocument;
-    } catch {
+  function markPreviewDownScrollIntent() {
+    previewDownScrollIntentAtRef.current = Date.now();
+  }
+
+  function checkPreviewAutoAdvance() {
+    const scrollElement = previewScrollRef.current;
+    if (!scrollElement) return;
+    if (previewAutoAdvanceLockedRef.current) return;
+    if (Date.now() - previewDownScrollIntentAtRef.current > PREVIEW_SCROLL_INTENT_WINDOW_MS) return;
+
+    const metrics = getPreviewElementScrollMetrics(scrollElement);
+    const hasScrollableContent = metrics.scrollHeight > metrics.clientHeight + PREVIEW_AUTO_ADVANCE_THRESHOLD_PX;
+    const reachedEnd =
+      metrics.scrollTop + metrics.clientHeight >= metrics.scrollHeight - PREVIEW_AUTO_ADVANCE_THRESHOLD_PX;
+
+    if (!hasScrollableContent || !reachedEnd) return;
+    void advanceToNextReaderResourceFromScroll();
+  }
+
+  function handlePreviewScroll(event: ReactUIEvent<HTMLDivElement>) {
+    const metrics = getPreviewElementScrollMetrics(event.currentTarget);
+    if (metrics.scrollTop > previewLastScrollTopRef.current + 1) {
+      markPreviewDownScrollIntent();
+    }
+    previewLastScrollTopRef.current = metrics.scrollTop;
+    checkPreviewAutoAdvance();
+  }
+
+  function handlePreviewWheel(event: ReactWheelEvent<HTMLDivElement>) {
+    if (event.deltaY > 0) markPreviewDownScrollIntent();
+    window.setTimeout(checkPreviewAutoAdvance, 0);
+  }
+
+  function handlePreviewTouchStart(event: ReactTouchEvent<HTMLDivElement>) {
+    previewTouchStartYRef.current = event.touches[0]?.clientY ?? null;
+  }
+
+  function handlePreviewTouchMove(event: ReactTouchEvent<HTMLDivElement>) {
+    const touchStartY = previewTouchStartYRef.current;
+    const currentY = event.touches[0]?.clientY ?? null;
+    if (touchStartY != null && currentY != null && touchStartY - currentY > 3) {
+      markPreviewDownScrollIntent();
+    }
+    window.setTimeout(checkPreviewAutoAdvance, 0);
+  }
+
+  function handlePreviewKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.defaultPrevented || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return;
+    if (isTextInputTarget(event.target)) return;
+
+    if (readingMode && event.key === "Escape") {
+      event.preventDefault();
+      setReadingMode(false);
       return;
     }
-    if (!doc) return;
 
-    setupPreviewInteractions(doc);
+    if (event.key === "ArrowLeft" && previousReaderResource) {
+      event.preventDefault();
+      void navigateReaderResource(previousReaderResource.path);
+      return;
+    }
+
+    if (event.key === "ArrowRight" && nextReaderResource) {
+      event.preventDefault();
+      void navigateReaderResource(nextReaderResource.path);
+      return;
+    }
+
+    if (["ArrowDown", "PageDown", "End", " "].includes(event.key)) {
+      markPreviewDownScrollIntent();
+      window.setTimeout(checkPreviewAutoAdvance, 0);
+    }
   }
 
-  function setupPreviewInteractions(doc: Document) {
-    if (doc.documentElement.dataset.ficbasePreviewBound === "true") return;
-    doc.documentElement.dataset.ficbasePreviewBound = "true";
+  function handlePreviewClick(event: MouseEvent<HTMLDivElement>) {
+    if (!(event.target instanceof Element)) return;
 
-    doc.addEventListener(
-      "click",
-      (event) => {
-        const view = doc.defaultView;
-        if (!view || !(event.target instanceof view.Element)) return;
+    const anchor = event.target.closest("a[href]");
+    if (!(anchor instanceof HTMLAnchorElement)) return;
 
-        const anchor = event.target.closest("a[href]");
-        if (!(anchor instanceof view.HTMLAnchorElement)) return;
+    const rawHref = anchor.getAttribute("href") ?? "";
+    if (!rawHref.startsWith("#") || rawHref.length <= 1) return;
 
-        const rawHref = anchor.getAttribute("href") ?? "";
-        if (!rawHref.startsWith("#") || rawHref.length <= 1) return;
+    const targetId = safeDecodeHash(rawHref.slice(1));
+    const target = findPreviewTargetById(previewScrollRef.current, targetId);
+    if (!target) return;
 
-        const targetId = safeDecodeHash(rawHref.slice(1));
-        const target = doc.getElementById(targetId);
-        if (!target) return;
-
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        scrollPreviewTargetIntoView(target);
-      },
-      true,
-    );
+    event.preventDefault();
+    event.stopPropagation();
+    scrollPreviewTargetIntoView(target);
   }
 
-  function scrollPreviewTargetIntoView(target: Element) {
-    const view = target.ownerDocument.defaultView;
-    if (!view) return;
+  function scrollPreviewTargetIntoView(target: HTMLElement) {
+    if (!previewScrollRef.current) return;
 
     target.scrollIntoView({
       block: "center",
@@ -1579,15 +1662,13 @@ function App() {
       behavior: "smooth",
     });
 
-    if (view && target instanceof view.HTMLElement) {
-      const previousTabIndex = target.getAttribute("tabindex");
-      target.setAttribute("tabindex", "-1");
-      target.focus({ preventScroll: true });
-      if (previousTabIndex === null) {
-        target.removeAttribute("tabindex");
-      } else {
-        target.setAttribute("tabindex", previousTabIndex);
-      }
+    const previousTabIndex = target.getAttribute("tabindex");
+    target.setAttribute("tabindex", "-1");
+    target.focus({ preventScroll: true });
+    if (previousTabIndex === null) {
+      target.removeAttribute("tabindex");
+    } else {
+      target.setAttribute("tabindex", previousTabIndex);
     }
   }
 
@@ -1595,116 +1676,114 @@ function App() {
     <main className={readingMode ? "shell is-reading" : "shell"}>
       <header className="toolbar">
         <div className="brand">
-          <BookOpen size={20} aria-hidden="true" />
+          <span className="brand-mark" aria-hidden="true" />
           <span>Ficbase Editor</span>
         </div>
         <div className="toolbar-actions">
           {!readingMode && (
             <>
-              <button
-                type="button"
-                className={templateDesignerOpen ? "button is-active" : "button"}
-                onClick={openTemplateDesigner}
-                disabled={busy}
-                title={t("action.newTemplate")}
-              >
-                <Palette size={16} aria-hidden="true" />
-                {t("action.newTemplate")}
-              </button>
-              <div
-                className="split-control import-control"
-              >
-                <button
-                  type="button"
-                  className="button split-main"
-                  onClick={() => importBook()}
-                  disabled={busy}
-                  title={t("action.importBook")}
-                >
-                  <FolderOpen size={16} aria-hidden="true" />
-                  {t("action.import")}
-                </button>
-                <button
-                  type="button"
-                  className="split-toggle"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setImportMenuOpen((value) => !value);
-                  }}
-                  disabled={busy}
-                  title={t("action.chooseImportMode")}
-                >
-                  <ChevronDown size={14} aria-hidden="true" />
-                </button>
-                {importMenuOpen && (
-                  <div className="toolbar-menu import-menu" onClick={(event) => event.stopPropagation()}>
-                    <button type="button" onClick={importBookWithTemplate}>
-                      <FileText size={14} aria-hidden="true" />
-                      {t("action.importWithTemplate")}
-                    </button>
-                    {chapterTemplates.length > 0 && (
-                      <>
-                        <div className="toolbar-menu-separator" />
-                        <div className="toolbar-menu-label">{t("label.savedTemplates")}</div>
-                        {chapterTemplates.map((template) => (
-                          <button
-                            type="button"
-                            key={template.id}
-                            className="template-menu-item"
-                            onClick={() => void importBookWithSavedTemplate(template)}
-                            title={template.name}
-                          >
-                            <Palette size={14} aria-hidden="true" />
-                            <span>{template.name}</span>
-                          </button>
-                        ))}
-                      </>
-                    )}
-                    <button type="button" onClick={saveCurrentChapterAsTemplate} disabled={!canSaveChapterTemplate}>
-                      <Plus size={14} aria-hidden="true" />
-                      {t("action.saveAsTemplate")}
-                    </button>
-                  </div>
-                )}
-              </div>
-              <div
-                className="split-control export-control"
-              >
-                <button
-                  type="button"
-                  className="button primary split-main export-main"
-                  onClick={() => {
-                    setExportMenuOpen(false);
-                    void exportBook("epub");
-                  }}
-                  disabled={!project || busy}
-                  title={t("action.exportEpub")}
-                >
-                  <Save size={16} aria-hidden="true" />
-                  {t("action.export")}
-                </button>
-                <button
-                  type="button"
-                  className="split-toggle export-toggle"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setExportMenuOpen((value) => !value);
-                  }}
-                  disabled={!project || busy}
-                  title={t("action.chooseExportFormat")}
-                >
-                  <ChevronDown size={14} aria-hidden="true" />
-                </button>
-                {exportMenuOpen && (
-                  <div className="toolbar-menu export-menu" onClick={(event) => event.stopPropagation()}>
-                    <button type="button" onClick={() => void exportBook("epub")}>
-                      {t("format.epub")}
-                    </button>
-                    <button type="button" onClick={() => void exportBook("txt")}>
-                      {t("format.txt")}
-                    </button>
-                  </div>
-                )}
+              <div className="action-shelf">
+                <div className="split-control import-control">
+                  <button
+                    type="button"
+                    className="split-main"
+                    onClick={() => importBook()}
+                    disabled={busy}
+                    title={t("action.importBook")}
+                  >
+                    <span className="action-icon">
+                      <Download size={15} aria-hidden="true" />
+                    </span>
+                    <span className="action-main">{t("action.import")}</span>
+                    <span className="action-format">EPUB/TXT</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="split-toggle"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setImportMenuOpen((value) => !value);
+                    }}
+                    disabled={busy}
+                    title={t("action.chooseImportMode")}
+                  >
+                    <ChevronDown size={14} aria-hidden="true" strokeWidth={2.3} />
+                  </button>
+                  {importMenuOpen && (
+                    <div className="toolbar-menu import-menu" onClick={(event) => event.stopPropagation()}>
+                      <button type="button" onClick={importBookWithTemplate}>
+                        <FileText size={14} aria-hidden="true" />
+                        {t("action.importWithTemplate")}
+                      </button>
+                      <button type="button" onClick={openTemplateDesigner} disabled={busy}>
+                        <Palette size={14} aria-hidden="true" />
+                        {t("action.newTemplate")}
+                      </button>
+                      {chapterTemplates.length > 0 && (
+                        <>
+                          <div className="toolbar-menu-separator" />
+                          <div className="toolbar-menu-label">{t("label.savedTemplates")}</div>
+                          {chapterTemplates.map((template) => (
+                            <button
+                              type="button"
+                              key={template.id}
+                              className="template-menu-item"
+                              onClick={() => void importBookWithSavedTemplate(template)}
+                              title={template.name}
+                            >
+                              <Palette size={14} aria-hidden="true" />
+                              <span>{template.name}</span>
+                            </button>
+                          ))}
+                        </>
+                      )}
+                      <button type="button" onClick={saveCurrentChapterAsTemplate} disabled={!canSaveChapterTemplate}>
+                        <Plus size={14} aria-hidden="true" />
+                        {t("action.saveAsTemplate")}
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="split-control export-control">
+                  <button
+                    type="button"
+                    className="split-main export-main"
+                    onClick={() => {
+                      setExportMenuOpen(false);
+                      void exportBook("epub");
+                    }}
+                    disabled={!project || busy}
+                    title={t("action.exportEpub")}
+                  >
+                    <span className="action-icon">
+                      <Upload size={15} aria-hidden="true" />
+                    </span>
+                    <span className="action-main">{t("action.export")}</span>
+                    <span className="action-format">EPUB</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="split-toggle export-toggle"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setExportMenuOpen((value) => !value);
+                    }}
+                    disabled={!project || busy}
+                    title={t("action.chooseExportFormat")}
+                  >
+                    <ChevronDown size={14} aria-hidden="true" strokeWidth={2.3} />
+                  </button>
+                  {exportMenuOpen && (
+                    <div className="toolbar-menu export-menu" onClick={(event) => event.stopPropagation()}>
+                      <button type="button" onClick={() => void exportBook("epub")}>
+                        {t("format.epub")}
+                      </button>
+                      <button type="button" onClick={() => void exportBook("txt")}>
+                        {t("format.txt")}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
               <button
                 type="button"
@@ -1715,39 +1794,19 @@ function App() {
                 <Languages size={16} aria-hidden="true" />
                 {getLocaleLabel(locale)}
               </button>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={closeProject}
-                disabled={!project || busy}
-                title={t("action.close")}
-              >
-                <X size={16} aria-hidden="true" />
-              </button>
             </>
           )}
-          <button
-            type="button"
-            className={readingMode ? "icon-button is-active" : "icon-button"}
-            onClick={toggleReadingMode}
-            disabled={templateDesignerOpen || !project || readerResources.length === 0 || busy}
-            title={readingMode ? t("action.exitReadingMode") : t("action.readingMode")}
-          >
-            <BookOpen size={16} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="icon-button"
-            onClick={() => setInspectorCollapsed((value) => !value)}
-            disabled={templateDesignerOpen}
-            title={inspectorCollapsed ? t("action.showInspector") : t("action.hideInspector")}
-          >
-            {inspectorCollapsed ? (
-              <PanelRightOpen size={16} aria-hidden="true" />
-            ) : (
-              <PanelRightClose size={16} aria-hidden="true" />
-            )}
-          </button>
+          {project && (
+            <button
+              type="button"
+              className={readingMode ? "icon-button is-active" : "icon-button"}
+              onClick={toggleReadingMode}
+              disabled={templateDesignerOpen || readerResources.length === 0 || busy}
+              title={readingMode ? t("action.exitReadingMode") : t("action.readingMode")}
+            >
+              <BookOpen size={16} aria-hidden="true" />
+            </button>
+          )}
         </div>
       </header>
 
@@ -1798,14 +1857,6 @@ function App() {
                 <Plus size={15} aria-hidden="true" />
                 {t("action.addHtml")}
               </button>
-              <button
-                type="button"
-                onClick={() => deleteHtmlResource()}
-                disabled={!selectedCanDeleteHtml || busy}
-                title={t("action.deleteHtml")}
-              >
-                <Trash2 size={15} aria-hidden="true" />
-              </button>
             </div>
           </div>
 
@@ -1837,11 +1888,27 @@ function App() {
 
         <section className={showEditorActions ? "editor has-actions" : "editor"}>
           {!project ? (
-            <div className="empty-state">
-              <button type="button" className="button primary large" onClick={() => importBook()} disabled={busy}>
-                <FolderOpen size={18} aria-hidden="true" />
-                {t("action.importBook")}
-              </button>
+            <div className="empty-state empty-workbench">
+              <div className="empty-paper">
+                <div className="empty-glyph" aria-hidden="true" />
+                <h2>{t("empty.importTitle")}</h2>
+                <p>{t("empty.importDescription")}</p>
+                <div className="empty-actions">
+                  <button type="button" className="button primary large hero-action" onClick={() => importBook()} disabled={busy}>
+                    <FolderOpen size={18} aria-hidden="true" />
+                    {t("action.importBook")}
+                  </button>
+                  <button
+                    type="button"
+                    className="button large hero-action secondary"
+                    onClick={importBookWithTemplate}
+                    disabled={busy}
+                  >
+                    <Palette size={18} aria-hidden="true" />
+                    {t("action.importWithTemplate")}
+                  </button>
+                </div>
+              </div>
             </div>
           ) : (
             <>
@@ -1918,16 +1985,20 @@ function App() {
                         t={t}
                       />
                     ) : (
-                      <div className="preview-scroll">
-                        <iframe
-                          ref={previewFrameRef}
-                          className="preview"
-                          title={t("title.previewFrame")}
-                          sandbox="allow-same-origin allow-scripts"
-                          srcDoc={previewDocumentHtml || undefined}
-                          onLoad={syncPreviewHeight}
-                        />
-                      </div>
+                      <div
+                        ref={previewScrollRef}
+                        className="preview-scroll"
+                        tabIndex={0}
+                        role="document"
+                        aria-label={t("title.previewFrame")}
+                        onClick={handlePreviewClick}
+                        onKeyDown={handlePreviewKeyDown}
+                        onScroll={handlePreviewScroll}
+                        onTouchMove={handlePreviewTouchMove}
+                        onTouchStart={handlePreviewTouchStart}
+                        onWheel={handlePreviewWheel}
+                        dangerouslySetInnerHTML={{ __html: previewDocumentHtml }}
+                      />
                     )
                   ) : selectedResource?.kind === "image" ? (
                     <div className="image-preview-panel">
@@ -2043,6 +2114,20 @@ function App() {
             </>
           )}
         </section>
+
+        {inspectorCollapsed && !templateDesignerOpen && (
+          <aside className="inspector-rail" aria-label={t("label.inspector")}>
+            <button
+              type="button"
+              className="toolbar-icon-button rail-toggle"
+              onClick={() => setInspectorCollapsed(false)}
+              title={t("action.showInspector")}
+            >
+              <PanelRightOpen size={16} aria-hidden="true" />
+            </button>
+            <span className="rail-label">{t("label.inspector")}</span>
+          </aside>
+        )}
 
         {!inspectorCollapsed && (readingMode ? (
           <ReaderToc
@@ -3543,6 +3628,19 @@ function safeDecodeHash(value: string) {
   }
 }
 
+function getPreviewElementScrollMetrics(element: HTMLElement) {
+  return {
+    scrollTop: element.scrollTop,
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  };
+}
+
+function findPreviewTargetById(container: HTMLElement | null, id: string) {
+  if (!container) return null;
+  return Array.from(container.querySelectorAll<HTMLElement>("[id]")).find((element) => element.id === id) ?? null;
+}
+
 function preparePreviewHtml(html: string) {
   const doc = new DOMParser().parseFromString(html, "text/html");
   doc.querySelectorAll("script").forEach((script) => script.remove());
@@ -3552,34 +3650,182 @@ function preparePreviewHtml(html: string) {
     });
   });
 
-  const script = doc.createElement("script");
-  script.textContent = `
-    (() => {
-      const editableTags = new Set(["input", "textarea", "select"]);
-      document.addEventListener("keydown", (event) => {
-        if (event.defaultPrevented || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return;
-        const target = event.target;
-        if (target instanceof HTMLElement) {
-          const tag = target.tagName.toLowerCase();
-          if (editableTags.has(tag) || target.isContentEditable) return;
-        }
-        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Escape") return;
-        event.preventDefault();
-        window.parent.postMessage({ source: "ficbase-preview", key: event.key }, "*");
-      }, true);
-    })();
-  `;
-  doc.body.append(script);
-  return `<!doctype html>\n${doc.documentElement.outerHTML}`;
+  const wrapper = doc.createElement("div");
+  wrapper.className = ["preview-document", ...Array.from(doc.body.classList)].filter(Boolean).join(" ");
+  copyBodyPreviewAttribute(doc.body, wrapper, "id");
+  copyBodyPreviewAttribute(doc.body, wrapper, "dir");
+  copyBodyPreviewAttribute(doc.body, wrapper, "lang");
+  copyBodyPreviewAttribute(doc.body, wrapper, "style");
+
+  Array.from(doc.querySelectorAll("style")).forEach((style) => {
+    const scopedStyle = doc.createElement("style");
+    Array.from(style.attributes).forEach((attribute) => {
+      if (attribute.name.toLowerCase().startsWith("on")) return;
+      scopedStyle.setAttribute(attribute.name, attribute.value);
+    });
+    scopedStyle.textContent = scopePreviewCss(style.textContent ?? "");
+    wrapper.append(scopedStyle);
+    style.remove();
+  });
+
+  Array.from(doc.body.childNodes).forEach((node) => {
+    wrapper.append(node);
+  });
+
+  return wrapper.outerHTML;
 }
 
-function isPreviewKeyMessage(value: unknown): value is { source: "ficbase-preview"; key: string } {
-  if (!value || typeof value !== "object") return false;
-  const message = value as { source?: unknown; key?: unknown };
-  return (
-    message.source === "ficbase-preview" &&
-    (message.key === "ArrowLeft" || message.key === "ArrowRight" || message.key === "Escape")
-  );
+function copyBodyPreviewAttribute(source: HTMLElement, target: HTMLElement, name: string) {
+  const value = source.getAttribute(name);
+  if (value) target.setAttribute(name, value);
+}
+
+function scopePreviewCss(css: string): string {
+  let output = "";
+  let cursor = 0;
+
+  while (cursor < css.length) {
+    const openIndex = css.indexOf("{", cursor);
+    if (openIndex === -1) {
+      output += css.slice(cursor);
+      break;
+    }
+
+    const closeIndex = findMatchingCssBrace(css, openIndex);
+    if (closeIndex === -1) {
+      output += css.slice(cursor);
+      break;
+    }
+
+    const selector = css.slice(cursor, openIndex);
+    const block = css.slice(openIndex + 1, closeIndex);
+    const trimmedSelector = selector.trim().toLowerCase();
+
+    if (trimmedSelector.startsWith("@")) {
+      const scopedBlock =
+        trimmedSelector.startsWith("@media") ||
+        trimmedSelector.startsWith("@supports") ||
+        trimmedSelector.startsWith("@container") ||
+        trimmedSelector.startsWith("@layer")
+          ? scopePreviewCss(block)
+          : block;
+      output += `${selector}{${scopedBlock}}`;
+    } else {
+      output += `${scopePreviewSelectorList(selector)}{${block}}`;
+    }
+
+    cursor = closeIndex + 1;
+  }
+
+  return output;
+}
+
+function findMatchingCssBrace(css: string, openIndex: number) {
+  let depth = 0;
+  let quote: string | null = null;
+  let inComment = false;
+
+  for (let index = openIndex; index < css.length; index += 1) {
+    const char = css[index];
+    const next = css[index + 1];
+
+    if (inComment) {
+      if (char === "*" && next === "/") {
+        inComment = false;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (quote) {
+      if (char === "\\") {
+        index += 1;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      inComment = true;
+      index += 1;
+      continue;
+    }
+
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+
+  return -1;
+}
+
+function scopePreviewSelectorList(selectorList: string) {
+  return splitCssSelectorList(selectorList)
+    .map((selector) => scopePreviewSelector(selector))
+    .join(", ");
+}
+
+function splitCssSelectorList(selectorList: string) {
+  const selectors: string[] = [];
+  let cursor = 0;
+  let depth = 0;
+  let quote: string | null = null;
+
+  for (let index = 0; index < selectorList.length; index += 1) {
+    const char = selectorList[index];
+
+    if (quote) {
+      if (char === "\\") {
+        index += 1;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === "(" || char === "[") {
+      depth += 1;
+    } else if (char === ")" || char === "]") {
+      depth = Math.max(0, depth - 1);
+    } else if (char === "," && depth === 0) {
+      selectors.push(selectorList.slice(cursor, index));
+      cursor = index + 1;
+    }
+  }
+
+  selectors.push(selectorList.slice(cursor));
+  return selectors;
+}
+
+function scopePreviewSelector(selector: string) {
+  const trimmed = selector.trim();
+  if (!trimmed) return selector;
+
+  let scoped = trimmed
+    .replace(/:root\b/g, ".preview-document")
+    .replace(/\bhtml\b/g, ".preview-document")
+    .replace(/\bbody\b/g, ".preview-document")
+    .replace(/\.preview-document\s+\.preview-document/g, ".preview-document");
+
+  if (!scoped.startsWith(".preview-document")) {
+    scoped = `.preview-document ${scoped}`;
+  }
+
+  return scoped;
 }
 
 function stripInlineStyles(root: ParentNode, properties: string[]) {

@@ -1,0 +1,1713 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ficbase Editor Local UI Board</title>
+    <style>
+      :root {
+        color: #26332f;
+        background: #edf3ea;
+        font-family:
+          Inter, "Noto Sans SC", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        font-size: 14px;
+        line-height: 1.35;
+        --ink: #26332f;
+        --muted: #6f8279;
+        --line: #dce8df;
+        --paper: #fffdf7;
+        --surface: #fffefb;
+        --app: #f8faf4;
+        --mint: #269b70;
+        --mint-dark: #176c51;
+        --mint-soft: #e4f4eb;
+        --blue-soft: #e6efff;
+        --sand: #f3e8d4;
+        --warn: #fff7df;
+        --danger: #b14837;
+        --shadow: 0 20px 52px rgba(48, 67, 58, 0.14);
+        --soft-shadow: 0 10px 26px rgba(48, 67, 58, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 1180px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(237, 243, 234, 0.95)),
+          var(--app);
+      }
+
+      svg {
+        display: block;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      .board {
+        display: grid;
+        gap: 44px;
+        padding: 36px;
+      }
+
+      .board-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+        gap: 24px;
+        max-width: 1440px;
+      }
+
+      .board-header h1 {
+        margin: 0;
+        color: #21352e;
+        font-size: 30px;
+        letter-spacing: 0;
+      }
+
+      .board-header p {
+        max-width: 720px;
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .board-note {
+        display: inline-grid;
+        gap: 3px;
+        padding: 10px 12px;
+        border: 1px solid #cfe2d5;
+        border-radius: 8px;
+        background: rgba(255, 254, 251, 0.82);
+        color: #4b6258;
+        box-shadow: var(--soft-shadow);
+      }
+
+      .board-note strong {
+        color: var(--mint-dark);
+        font-size: 12px;
+      }
+
+      .board-note span {
+        font-size: 12px;
+      }
+
+      .section-title {
+        margin: 0 0 14px;
+        color: #334940;
+        font-size: 14px;
+        font-weight: 760;
+      }
+
+      .artboard {
+        width: 1440px;
+        height: 900px;
+        overflow: hidden;
+        border: 1px solid #d7e5db;
+        border-radius: 12px;
+        background: var(--app);
+        box-shadow: var(--shadow);
+      }
+
+      .shell {
+        display: grid;
+        grid-template-rows: 60px minmax(0, 1fr);
+        width: 100%;
+        height: 100%;
+      }
+
+      .toolbar {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 18px;
+        padding: 0 20px;
+        border-bottom: 1px solid #e2ebe5;
+        background: #fffdf8;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        color: #24342f;
+        font-size: 15px;
+        font-weight: 800;
+      }
+
+      .brand-mark {
+        position: relative;
+        width: 28px;
+        height: 28px;
+        border: 1px solid #9ed1b5;
+        border-radius: 7px;
+        background: var(--mint-soft);
+      }
+
+      .brand-mark::before,
+      .brand-mark::after {
+        position: absolute;
+        top: 6px;
+        bottom: 6px;
+        width: 2px;
+        border-radius: 99px;
+        background: var(--mint);
+        content: "";
+      }
+
+      .brand-mark::before {
+        left: 11px;
+      }
+
+      .brand-mark::after {
+        left: 15px;
+        opacity: 0.45;
+      }
+
+      .toolbar-spacer {
+        min-width: 0;
+      }
+
+      .toolbar-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .action-shelf {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 42px;
+        padding: 5px;
+        border: 1px solid #dce9e0;
+        border-radius: 13px;
+        background: #f7fbf6;
+        box-shadow: 0 7px 18px rgba(63, 86, 75, 0.08);
+      }
+
+      .split-action {
+        display: inline-grid;
+        grid-template-columns: 28px auto auto 32px;
+        align-items: center;
+        height: 32px;
+        min-width: 160px;
+        border: 1px solid #cfe0d5;
+        border-radius: 10px;
+        background: #ffffff;
+        color: var(--ink);
+        cursor: default;
+      }
+
+      .split-action.primary {
+        min-width: 178px;
+        border-color: var(--mint);
+        background: var(--mint);
+        color: #ffffff;
+        box-shadow: 0 8px 18px rgba(35, 138, 103, 0.18);
+      }
+
+      .action-icon {
+        display: grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        margin-left: 5px;
+        border-radius: 7px;
+        background: #eaf6ef;
+        color: #1f8a64;
+      }
+
+      .split-action.primary .action-icon {
+        background: rgba(255, 255, 255, 0.17);
+        color: #ffffff;
+      }
+
+      .action-main {
+        padding-left: 8px;
+        color: inherit;
+        font-size: 13px;
+        font-weight: 760;
+        white-space: nowrap;
+      }
+
+      .action-format {
+        padding-left: 4px;
+        padding-right: 8px;
+        color: #70847b;
+        font-size: 10px;
+        font-weight: 760;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+      }
+
+      .split-action.primary .action-format {
+        color: #ddf4e8;
+      }
+
+      .action-chevron {
+        display: grid;
+        place-items: center;
+        width: 32px;
+        height: 100%;
+        border-left: 1px solid #dde8e0;
+        color: #526961;
+      }
+
+      .chevron-icon {
+        width: 14px;
+        height: 14px;
+      }
+
+      .split-action.primary .action-chevron {
+        border-left-color: rgba(255, 255, 255, 0.28);
+        color: #ffffff;
+      }
+
+      .toolbar-icon-button {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border: 1px solid #ccddd3;
+        border-radius: 9px;
+        background: #fffefb;
+        color: #334940;
+      }
+
+      .toolbar-icon-button.active {
+        border-color: #a8d6bf;
+        background: var(--mint-soft);
+        color: var(--mint-dark);
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: 280px minmax(0, 1fr) 48px;
+        min-height: 0;
+        background: var(--app);
+      }
+
+      .workspace.with-inspector {
+        grid-template-columns: 280px minmax(0, 1fr) 272px;
+      }
+
+      .workspace.reading {
+        grid-template-columns: 280px minmax(0, 1fr) 272px;
+        background: #f6f4ec;
+      }
+
+      .sidebar {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        min-height: 0;
+        border-right: 1px solid #d9e5dc;
+        background: #f6faf4;
+      }
+
+      .sidebar-head {
+        display: grid;
+        gap: 12px;
+        padding: 20px 18px 12px;
+      }
+
+      .panel-kicker {
+        color: #516961;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .side-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .mini-button,
+      .mini-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 32px;
+        border: 1px solid #d4e3d8;
+        border-radius: 8px;
+        background: #fffefb;
+        color: #31423c;
+        font-weight: 760;
+      }
+
+      .mini-button {
+        gap: 7px;
+      }
+
+      .search {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        height: 36px;
+        padding: 0 11px;
+        border: 1px solid #d4e3d8;
+        border-radius: 8px;
+        background: #fffefb;
+        color: #7c8d86;
+      }
+
+      .search span {
+        color: #95a49e;
+        font-size: 12px;
+      }
+
+      .resource-tree {
+        display: grid;
+        align-content: start;
+        gap: 4px;
+        min-height: 0;
+        overflow: auto;
+        padding: 10px 12px 20px;
+      }
+
+      .tree-row {
+        display: grid;
+        grid-template-columns: 18px 26px minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        min-height: 46px;
+        padding: 5px 8px;
+        border-radius: 8px;
+        color: #354840;
+      }
+
+      .tree-row.active {
+        border: 1px solid #bde1cd;
+        background: var(--mint-soft);
+        color: var(--mint-dark);
+      }
+
+      .tree-icon {
+        display: grid;
+        place-items: center;
+        width: 24px;
+        height: 24px;
+        border: 1px solid #d9e5dc;
+        border-radius: 6px;
+        background: #f5efd6;
+      }
+
+      .tree-icon.style {
+        background: var(--blue-soft);
+      }
+
+      .tree-icon.image {
+        background: #fbe8d5;
+      }
+
+      .tree-icon.package {
+        background: #efe6ff;
+      }
+
+      .tree-copy {
+        display: grid;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .tree-copy strong,
+      .tree-copy small {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .tree-copy strong {
+        font-size: 13px;
+        font-weight: 720;
+      }
+
+      .tree-copy small {
+        color: #7f918a;
+        font-size: 10.5px;
+      }
+
+      .workbench {
+        display: grid;
+        grid-template-rows: 92px minmax(0, 1fr);
+        min-width: 0;
+        min-height: 0;
+        padding: 0 28px 28px;
+      }
+
+      .workbench-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-width: 0;
+      }
+
+      .selection-label {
+        color: #7b8f86;
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .selection-title {
+        margin-top: 5px;
+        color: #24342f;
+        font-size: 22px;
+        font-weight: 820;
+      }
+
+      .segmented {
+        display: inline-grid;
+        grid-template-columns: repeat(3, 82px);
+        gap: 4px;
+        padding: 4px;
+        border: 1px solid #cfe0d5;
+        border-radius: 10px;
+        background: #eef6f0;
+      }
+
+      .segmented span {
+        display: grid;
+        place-items: center;
+        height: 28px;
+        border-radius: 7px;
+        color: #5f746c;
+        font-size: 12px;
+        font-weight: 760;
+      }
+
+      .segmented .selected {
+        border: 1px solid #d3e3d8;
+        background: #ffffff;
+        color: var(--mint-dark);
+        box-shadow: 0 3px 8px rgba(61, 117, 86, 0.1);
+      }
+
+      .paper-wrap {
+        display: grid;
+        place-items: start center;
+        min-height: 0;
+        overflow: auto;
+        padding-top: 10px;
+      }
+
+      .reader-paper {
+        position: relative;
+        width: 742px;
+        min-height: 650px;
+        padding: 62px 108px 80px;
+        border: 1px solid #e7ded0;
+        border-radius: 7px;
+        background: var(--paper);
+        box-shadow: 0 18px 42px rgba(96, 80, 64, 0.1);
+      }
+
+      .reader-paper.narrow {
+        width: 640px;
+        min-height: 660px;
+      }
+
+      .reader-paper h2 {
+        margin: 0;
+        color: #1f2e2a;
+        font-size: 30px;
+        text-align: center;
+      }
+
+      .ornament {
+        width: 84px;
+        height: 3px;
+        margin: 28px auto 38px;
+        border-radius: 99px;
+        background: #76b992;
+      }
+
+      .reader-paper p {
+        margin: 0 0 24px;
+        color: #26332f;
+        font-size: 17px;
+        line-height: 1.9;
+      }
+
+      .annotation {
+        position: relative;
+        border-bottom: 2px dashed #58ad83;
+      }
+
+      .annotation::after {
+        position: absolute;
+        top: -13px;
+        right: -22px;
+        display: grid;
+        place-items: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #eaa84b;
+        color: #ffffff;
+        content: "1";
+        font-size: 10px;
+        font-weight: 800;
+      }
+
+      .inspector-rail,
+      .inspector {
+        border-left: 1px solid #d9e5dc;
+        background: #fbfdf8;
+      }
+
+      .inspector-rail {
+        display: grid;
+        justify-items: center;
+        align-content: start;
+        gap: 14px;
+        padding-top: 18px;
+      }
+
+      .rail-label {
+        writing-mode: vertical-rl;
+        color: #8a9a92;
+        font-size: 10px;
+        font-weight: 760;
+      }
+
+      .inspector {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        min-height: 0;
+        padding: 18px 22px;
+      }
+
+      .inspector-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #334940;
+        font-size: 13px;
+        font-weight: 820;
+      }
+
+      .details {
+        display: grid;
+        align-content: start;
+        gap: 18px;
+        padding-top: 30px;
+      }
+
+      .detail {
+        display: grid;
+        gap: 6px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid #e1eae4;
+      }
+
+      .detail small {
+        color: #6c8178;
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .detail span {
+        color: #26332f;
+        font-size: 13px;
+      }
+
+      .warning-card {
+        padding: 14px;
+        border: 1px solid #e8d292;
+        border-radius: 8px;
+        background: var(--warn);
+        color: #785a16;
+      }
+
+      .warning-card strong {
+        display: block;
+        margin-bottom: 7px;
+      }
+
+      .warning-card span {
+        color: #826929;
+        font-size: 12px;
+      }
+
+      .empty-workbench {
+        display: grid;
+        place-items: center;
+        padding: 56px;
+      }
+
+      .empty-paper {
+        display: grid;
+        justify-items: center;
+        align-content: center;
+        width: 760px;
+        min-height: 560px;
+        border: 1px solid #e6ded0;
+        border-radius: 8px;
+        background: var(--paper);
+        box-shadow: 0 18px 42px rgba(81, 102, 90, 0.12);
+      }
+
+      .empty-glyph {
+        position: relative;
+        width: 146px;
+        height: 112px;
+        margin-bottom: 34px;
+        border: 1px solid #9ed1b5;
+        border-radius: 18px;
+        background: var(--mint-soft);
+      }
+
+      .empty-glyph::before {
+        position: absolute;
+        top: 24px;
+        bottom: 24px;
+        left: 71px;
+        width: 4px;
+        border-radius: 99px;
+        background: var(--mint);
+        content: "";
+      }
+
+      .empty-paper h2 {
+        margin: 0 0 12px;
+        color: #24342f;
+        font-size: 30px;
+      }
+
+      .empty-paper p {
+        max-width: 536px;
+        margin: 0 0 28px;
+        color: #60766e;
+        font-size: 15px;
+        line-height: 1.6;
+        text-align: center;
+      }
+
+      .empty-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .hero-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 42px;
+        padding: 0 18px;
+        border: 1px solid var(--mint);
+        border-radius: 9px;
+        background: var(--mint);
+        color: #ffffff;
+        font-weight: 780;
+        box-shadow: 0 10px 22px rgba(35, 138, 103, 0.18);
+      }
+
+      .hero-action.secondary {
+        border-color: #ccddd3;
+        background: #fffefb;
+        color: #26332f;
+        box-shadow: none;
+      }
+
+      .rich-toolbar {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 48px;
+        padding: 8px 10px;
+        border: 1px solid #dde8e0;
+        border-radius: 10px;
+        background: #fffdf8;
+        box-shadow: 0 5px 14px rgba(84, 103, 95, 0.08);
+      }
+
+      .tool {
+        display: grid;
+        place-items: center;
+        min-width: 32px;
+        height: 32px;
+        padding: 0 8px;
+        border: 1px solid #d6e4da;
+        border-radius: 7px;
+        background: #ffffff;
+        color: #334940;
+        font-size: 12px;
+        font-weight: 780;
+      }
+
+      .tool.active {
+        border-color: #a8d6bf;
+        background: var(--mint-soft);
+        color: var(--mint-dark);
+      }
+
+      .selected-image {
+        position: absolute;
+        right: 88px;
+        bottom: 70px;
+        display: grid;
+        place-items: center;
+        width: 300px;
+        height: 148px;
+        border: 1px solid #e2c391;
+        border-radius: 6px;
+        background: #f1e5d0;
+        color: #725a35;
+        font-weight: 760;
+      }
+
+      .handle {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        border: 1px solid var(--mint);
+        border-radius: 2px;
+        background: #ffffff;
+      }
+
+      .handle.tl {
+        top: -6px;
+        left: -6px;
+      }
+
+      .handle.tr {
+        top: -6px;
+        right: -6px;
+      }
+
+      .handle.bl {
+        bottom: -6px;
+        left: -6px;
+      }
+
+      .handle.br {
+        right: -6px;
+        bottom: -6px;
+      }
+
+      .comment-popover {
+        position: absolute;
+        top: 244px;
+        right: 76px;
+        width: 260px;
+        padding: 16px 18px;
+        border: 1px solid #caddd1;
+        border-radius: 10px;
+        background: #ffffff;
+        box-shadow: 0 16px 34px rgba(38, 51, 47, 0.14);
+      }
+
+      .comment-popover strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .comment-popover span {
+        display: block;
+        color: #4a5f57;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .swatches {
+        display: inline-flex;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .swatch {
+        width: 52px;
+        height: 16px;
+        border-radius: 99px;
+      }
+
+      .metadata-layout {
+        display: grid;
+        place-items: start center;
+        min-height: 0;
+        overflow: auto;
+        padding-top: 34px;
+      }
+
+      .metadata-sheet {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 54px;
+        width: 748px;
+        min-height: 612px;
+        padding: 70px 56px;
+        border: 1px solid #e7ded0;
+        border-radius: 8px;
+        background: var(--paper);
+        box-shadow: 0 18px 42px rgba(81, 102, 90, 0.1);
+      }
+
+      .cover {
+        display: grid;
+        place-items: center;
+        width: 218px;
+        height: 310px;
+        border: 1px solid #d0ba91;
+        border-radius: 8px;
+        background: var(--sand);
+        color: #62492c;
+        font-size: 30px;
+        font-weight: 820;
+        text-align: center;
+        box-shadow: 0 12px 26px rgba(110, 91, 60, 0.13);
+      }
+
+      .record h2 {
+        margin: 0 0 8px;
+        color: #24342f;
+        font-size: 32px;
+      }
+
+      .record p {
+        margin: 0;
+        color: #6c8178;
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(4, 86px);
+        gap: 12px;
+        margin: 52px 0 48px;
+      }
+
+      .metric {
+        display: grid;
+        place-items: center;
+        height: 74px;
+        border: 1px solid #dde8e0;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .metric strong {
+        color: var(--mint-dark);
+        font-size: 20px;
+      }
+
+      .metric span {
+        color: #789087;
+        font-size: 11px;
+        font-weight: 760;
+      }
+
+      .metadata-note {
+        padding: 16px 20px;
+        border: 1px solid #cde5d8;
+        border-radius: 8px;
+        background: #eef7f1;
+      }
+
+      .metadata-note strong {
+        display: block;
+        margin-bottom: 8px;
+        color: var(--mint-dark);
+      }
+
+      .metadata-note span {
+        color: #50665e;
+        font-size: 12px;
+      }
+
+      .toc-list {
+        display: grid;
+        align-content: start;
+        gap: 8px;
+        padding-top: 30px;
+      }
+
+      .toc-item {
+        display: flex;
+        align-items: center;
+        min-height: 38px;
+        padding: 0 14px;
+        border: 1px solid #e1eae4;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #334940;
+        font-size: 12.5px;
+        font-weight: 680;
+      }
+
+      .toc-item.active {
+        border-color: #a8d6bf;
+        background: var(--mint-soft);
+        color: var(--mint-dark);
+        font-weight: 780;
+      }
+
+      .toc-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .token-board {
+        display: grid;
+        gap: 24px;
+        width: 1440px;
+        padding: 28px;
+        border: 1px solid #d7e5db;
+        border-radius: 12px;
+        background: #f8faf4;
+        box-shadow: var(--shadow);
+      }
+
+      .token-board h2 {
+        margin: 0;
+        color: #24342f;
+        font-size: 24px;
+      }
+
+      .token-board p {
+        max-width: 720px;
+        margin: 4px 0 0;
+        color: #5d746b;
+      }
+
+      .swatch-grid {
+        display: grid;
+        grid-template-columns: repeat(8, 1fr);
+        gap: 16px;
+      }
+
+      .color-card {
+        display: grid;
+        gap: 10px;
+      }
+
+      .color-chip {
+        height: 80px;
+        border: 1px solid #dce7de;
+        border-radius: 8px;
+      }
+
+      .color-card strong {
+        color: #334940;
+        font-size: 12px;
+      }
+
+      .color-card span {
+        color: #72867e;
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="board">
+      <header class="board-header">
+        <div>
+          <h1>Ficbase Editor Local UI Board</h1>
+          <p>
+            本地高保真 UI 设计板。重点是明亮 EPUB 工作台方向，以及重新设计后的导入/导出组合按钮。
+          </p>
+        </div>
+        <div class="board-note">
+          <strong>Button redesign</strong>
+          <span>split chip + compact action shelf</span>
+        </div>
+      </header>
+
+      <section>
+        <h2 class="section-title">01 Empty / Import</h2>
+        <div class="artboard">
+          <div class="shell">
+            <div class="toolbar">
+              <div class="brand"><span class="brand-mark"></span>Ficbase Editor</div>
+              <div class="toolbar-spacer"></div>
+              <div class="toolbar-actions">
+                <div class="action-shelf">
+                  <div class="split-action">
+                    <span class="action-icon">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 4v10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <path
+                          d="M8 10l4 4 4-4"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                        <path
+                          d="M5 14v3.5A2.5 2.5 0 0 0 7.5 20h9A2.5 2.5 0 0 0 19 17.5V14"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                        />
+                      </svg>
+                    </span>
+                    <span class="action-main">导入</span>
+                    <span class="action-format">EPUB/TXT</span>
+                    <span class="action-chevron">
+                      <svg class="chevron-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path
+                          d="M4.75 6.25L8 9.75l3.25-3.5"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  </div>
+                  <div class="split-action primary">
+                    <span class="action-icon">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 4v10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <path
+                          d="M8 8l4-4 4 4"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                        <path
+                          d="M5 14v3.5A2.5 2.5 0 0 0 7.5 20h9A2.5 2.5 0 0 0 19 17.5V14"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                        />
+                      </svg>
+                    </span>
+                    <span class="action-main">导出</span>
+                    <span class="action-format">EPUB</span>
+                    <span class="action-chevron">
+                      <svg class="chevron-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path
+                          d="M4.75 6.25L8 9.75l3.25-3.5"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  </div>
+                </div>
+                <span class="toolbar-icon-button">中</span>
+                <span class="toolbar-icon-button">读</span>
+              </div>
+            </div>
+            <div class="workspace">
+              <aside class="sidebar">
+                <div class="sidebar-head">
+                  <div class="panel-kicker">Book Structure</div>
+                  <div class="side-actions">
+                    <span class="mini-button">添加 HTML</span>
+                  </div>
+                  <div class="search">
+                    <span>⌕</span>
+                    <span>搜索章节、资源或路径</span>
+                  </div>
+                </div>
+                <div class="resource-tree">
+                  <div class="warning-card">
+                    <strong>还没有打开书籍</strong>
+                    <span>导入 EPUB 或 TXT 后，这里会显示封面、章节、样式和图片资源。</span>
+                  </div>
+                </div>
+              </aside>
+              <section class="empty-workbench">
+                <div class="empty-paper">
+                  <div class="empty-glyph"></div>
+                  <h2>开始整理一本书</h2>
+                  <p>
+                    导入 EPUB 或 TXT，Ficbase 会把章节、样式、图片和 metadata 整理成一个明亮的工作台。
+                  </p>
+                  <div class="empty-actions">
+                    <span class="hero-action">导入 EPUB/TXT</span>
+                    <span class="hero-action secondary">按模板导入</span>
+                  </div>
+                </div>
+              </section>
+              <aside class="inspector-rail">
+                <span class="toolbar-icon-button">›</span>
+                <span class="rail-label">Inspector</span>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">02 Chapter Preview</h2>
+        <div class="artboard">
+          <div class="shell">
+            <div class="toolbar">
+              <div class="brand"><span class="brand-mark"></span>Ficbase Editor</div>
+              <div class="toolbar-spacer"></div>
+              <div class="toolbar-actions">
+                <div class="action-shelf">
+                  <div class="split-action">
+                    <span class="action-icon">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 4v10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <path
+                          d="M8 10l4 4 4-4"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                        <path
+                          d="M5 14v3.5A2.5 2.5 0 0 0 7.5 20h9A2.5 2.5 0 0 0 19 17.5V14"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                        />
+                      </svg>
+                    </span>
+                    <span class="action-main">导入</span>
+                    <span class="action-format">EPUB/TXT</span>
+                    <span class="action-chevron">
+                      <svg class="chevron-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path
+                          d="M4.75 6.25L8 9.75l3.25-3.5"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  </div>
+                  <div class="split-action primary">
+                    <span class="action-icon">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 4v10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <path
+                          d="M8 8l4-4 4 4"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                        <path
+                          d="M5 14v3.5A2.5 2.5 0 0 0 7.5 20h9A2.5 2.5 0 0 0 19 17.5V14"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                        />
+                      </svg>
+                    </span>
+                    <span class="action-main">导出</span>
+                    <span class="action-format">EPUB</span>
+                    <span class="action-chevron">
+                      <svg class="chevron-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path
+                          d="M4.75 6.25L8 9.75l3.25-3.5"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  </div>
+                </div>
+                <span class="toolbar-icon-button">中</span>
+                <span class="toolbar-icon-button">读</span>
+              </div>
+            </div>
+            <div class="workspace">
+              <aside class="sidebar">
+                <div class="sidebar-head">
+                  <div class="panel-kicker">Book Structure</div>
+                  <div class="side-actions">
+                    <span class="mini-button">添加 HTML</span>
+                  </div>
+                  <div class="search">
+                    <span>⌕</span>
+                    <span>搜索章节、资源或路径</span>
+                  </div>
+                </div>
+                <div class="resource-tree">
+                  <div class="tree-row"><span>▾</span><span class="tree-icon">T</span><span class="tree-copy"><strong>前言</strong><small>text/preface.xhtml</small></span></div>
+                  <div class="tree-row active"><span>▾</span><span class="tree-icon">T</span><span class="tree-copy"><strong>第一章 伊恩</strong><small>text/chapter-01.xhtml</small></span></div>
+                  <div class="tree-row"><span>▸</span><span class="tree-icon">T</span><span class="tree-copy"><strong>第二章 旧港</strong><small>text/chapter-02.xhtml</small></span></div>
+                  <div class="tree-row"><span>▾</span><span class="tree-icon style">C</span><span class="tree-copy"><strong>chapter.css</strong><small>styles/chapter.css</small></span></div>
+                  <div class="tree-row"><span>▸</span><span class="tree-icon image">I</span><span class="tree-copy"><strong>cover.jpg</strong><small>images/cover.jpg</small></span></div>
+                  <div class="tree-row"><span>▸</span><span class="tree-icon package">P</span><span class="tree-copy"><strong>content.opf</strong><small>OPS/content.opf</small></span></div>
+                </div>
+              </aside>
+              <section class="workbench">
+                <div class="workbench-head">
+                  <div>
+                    <div class="selection-label">正在预览</div>
+                    <div class="selection-title">第一章 伊恩</div>
+                  </div>
+                  <div class="segmented">
+                    <span class="selected">预览</span>
+                    <span>可视化</span>
+                    <span>源码</span>
+                  </div>
+                </div>
+                <div class="paper-wrap">
+                  <article class="reader-paper">
+                    <h2>第一章 伊恩</h2>
+                    <div class="ornament"></div>
+                    <p>窗外的雨声很轻，像有人在旧纸页边缘反复摩挲。伊恩把封面重新放回桌面，确认目录里的章节顺序终于和阅读顺序一致。</p>
+                    <p>这本书还有一些需要修复的地方：缺失的公共样式、过长的标题、以及几张被错误引用的图片。但至少现在，它开始像一本真正可以交付的电子书。</p>
+                    <p>他选中文字，在句子下方添了一条<span class="annotation">浅绿色虚线注释</span>。角标安静地停在右上方，只有当鼠标靠近时，才展开那张小小的说明卡片。</p>
+                  </article>
+                </div>
+              </section>
+              <aside class="inspector-rail">
+                <span class="toolbar-icon-button">›</span>
+                <span class="rail-label">Inspector</span>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">03 Visual Editing</h2>
+        <div class="artboard">
+          <div class="shell">
+            <div class="toolbar">
+              <div class="brand"><span class="brand-mark"></span>Ficbase Editor</div>
+              <div class="toolbar-spacer"></div>
+              <div class="toolbar-actions">
+                <div class="action-shelf">
+                  <div class="split-action">
+                    <span class="action-icon">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 4v10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <path
+                          d="M8 10l4 4 4-4"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                        <path
+                          d="M5 14v3.5A2.5 2.5 0 0 0 7.5 20h9A2.5 2.5 0 0 0 19 17.5V14"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                        />
+                      </svg>
+                    </span>
+                    <span class="action-main">导入</span>
+                    <span class="action-format">EPUB/TXT</span>
+                    <span class="action-chevron">
+                      <svg class="chevron-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path
+                          d="M4.75 6.25L8 9.75l3.25-3.5"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  </div>
+                  <div class="split-action primary">
+                    <span class="action-icon">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 4v10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <path
+                          d="M8 8l4-4 4 4"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                        <path
+                          d="M5 14v3.5A2.5 2.5 0 0 0 7.5 20h9A2.5 2.5 0 0 0 19 17.5V14"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                        />
+                      </svg>
+                    </span>
+                    <span class="action-main">导出</span>
+                    <span class="action-format">EPUB</span>
+                    <span class="action-chevron">
+                      <svg class="chevron-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path
+                          d="M4.75 6.25L8 9.75l3.25-3.5"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  </div>
+                </div>
+                <span class="toolbar-icon-button">中</span>
+                <span class="toolbar-icon-button">读</span>
+              </div>
+            </div>
+            <div class="workspace with-inspector">
+              <aside class="sidebar">
+                <div class="sidebar-head">
+                  <div class="panel-kicker">Book Structure</div>
+                  <div class="side-actions">
+                    <span class="mini-button">添加 HTML</span>
+                  </div>
+                  <div class="search">
+                    <span>⌕</span>
+                    <span>搜索章节、资源或路径</span>
+                  </div>
+                </div>
+                <div class="resource-tree">
+                  <div class="tree-row"><span>▾</span><span class="tree-icon">T</span><span class="tree-copy"><strong>前言</strong><small>text/preface.xhtml</small></span></div>
+                  <div class="tree-row active"><span>▾</span><span class="tree-icon">T</span><span class="tree-copy"><strong>第一章 伊恩</strong><small>text/chapter-01.xhtml</small></span></div>
+                  <div class="tree-row"><span>▾</span><span class="tree-icon style">C</span><span class="tree-copy"><strong>chapter.css</strong><small>styles/chapter.css</small></span></div>
+                  <div class="tree-row"><span>▸</span><span class="tree-icon image">I</span><span class="tree-copy"><strong>cover.jpg</strong><small>images/cover.jpg</small></span></div>
+                </div>
+              </aside>
+              <section class="workbench">
+                <div class="workbench-head">
+                  <div>
+                    <div class="selection-label">可视化编辑</div>
+                    <div class="selection-title">第一章 伊恩</div>
+                  </div>
+                  <div class="segmented">
+                    <span>预览</span>
+                    <span class="selected">可视化</span>
+                    <span>源码</span>
+                  </div>
+                </div>
+                <div class="paper-wrap">
+                  <div>
+                    <div class="rich-toolbar">
+                      <span class="tool active">B</span><span class="tool">I</span><span class="tool">U</span><span class="tool">¶</span><span class="tool">16</span><span class="tool">1.8</span><span class="tool">L</span><span class="tool">C</span><span class="tool">R</span><span class="tool">A</span><span class="tool">图</span><span class="tool">链</span>
+                    </div>
+                    <article class="reader-paper" style="margin-top: 16px; width: 622px; min-height: 574px; padding-inline: 74px;">
+                      <h2>第一章 伊恩</h2>
+                      <div class="ornament"></div>
+                      <p>窗外的雨声很轻，像有人在旧纸页边缘反复摩挲。伊恩把封面重新放回桌面。</p>
+                      <p>他选中文字，在句子下方添了一条<span class="annotation">浅绿色虚线注释</span>。</p>
+                      <div class="selected-image">
+                        章节装饰图
+                        <span class="handle tl"></span><span class="handle tr"></span><span class="handle bl"></span><span class="handle br"></span>
+                      </div>
+                      <div class="comment-popover">
+                        <strong>注释</strong>
+                        <span>这里解释人物第一次听见雨声时的心理暗示。</span>
+                        <div class="swatches">
+                          <span class="swatch" style="background: #58ad83"></span>
+                          <span class="swatch" style="background: #eaa84b"></span>
+                        </div>
+                      </div>
+                    </article>
+                  </div>
+                </div>
+              </section>
+              <aside class="inspector">
+                <div class="inspector-title"><span class="toolbar-icon-button">‹</span>Inspector</div>
+                <div class="details">
+                  <div class="detail"><small>名称</small><span>chapter-01.xhtml</span></div>
+                  <div class="detail"><small>类型</small><span>Chapter</span></div>
+                  <div class="detail"><small>媒体类型</small><span>application/xhtml+xml</span></div>
+                  <div class="detail"><small>阅读顺序</small><span>2 / 18</span></div>
+                  <div class="warning-card"><strong>2 处可修复问题</strong><span>当前章节缺少公共样式链接，并包含一处覆盖正文颜色的内联样式。</span></div>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">04 Metadata & Cover</h2>
+        <div class="artboard">
+          <div class="shell">
+            <div class="toolbar">
+              <div class="brand"><span class="brand-mark"></span>Ficbase Editor</div>
+              <div class="toolbar-spacer"></div>
+              <div class="toolbar-actions">
+                <div class="action-shelf">
+                  <div class="split-action">
+                    <span class="action-icon">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 4v10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <path
+                          d="M8 10l4 4 4-4"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                        <path
+                          d="M5 14v3.5A2.5 2.5 0 0 0 7.5 20h9A2.5 2.5 0 0 0 19 17.5V14"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                        />
+                      </svg>
+                    </span>
+                    <span class="action-main">导入</span>
+                    <span class="action-format">EPUB/TXT</span>
+                    <span class="action-chevron">
+                      <svg class="chevron-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path
+                          d="M4.75 6.25L8 9.75l3.25-3.5"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  </div>
+                  <div class="split-action primary">
+                    <span class="action-icon">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 4v10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <path
+                          d="M8 8l4-4 4 4"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                        <path
+                          d="M5 14v3.5A2.5 2.5 0 0 0 7.5 20h9A2.5 2.5 0 0 0 19 17.5V14"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                        />
+                      </svg>
+                    </span>
+                    <span class="action-main">导出</span>
+                    <span class="action-format">EPUB</span>
+                    <span class="action-chevron">
+                      <svg class="chevron-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path
+                          d="M4.75 6.25L8 9.75l3.25-3.5"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  </div>
+                </div>
+                <span class="toolbar-icon-button">中</span>
+                <span class="toolbar-icon-button">读</span>
+              </div>
+            </div>
+            <div class="workspace with-inspector">
+              <aside class="sidebar">
+                <div class="sidebar-head">
+                  <div class="panel-kicker">Book Structure</div>
+                  <div class="side-actions"><span class="mini-button">添加 HTML</span></div>
+                  <div class="search"><span>⌕</span><span>搜索章节、资源或路径</span></div>
+                </div>
+                <div class="resource-tree">
+                  <div class="tree-row"><span>▾</span><span class="tree-icon">T</span><span class="tree-copy"><strong>第一章 伊恩</strong><small>text/chapter-01.xhtml</small></span></div>
+                  <div class="tree-row"><span>▾</span><span class="tree-icon style">C</span><span class="tree-copy"><strong>chapter.css</strong><small>styles/chapter.css</small></span></div>
+                  <div class="tree-row"><span>▸</span><span class="tree-icon image">I</span><span class="tree-copy"><strong>cover.jpg</strong><small>images/cover.jpg</small></span></div>
+                  <div class="tree-row active"><span>▸</span><span class="tree-icon package">P</span><span class="tree-copy"><strong>content.opf</strong><small>OPS/content.opf</small></span></div>
+                </div>
+              </aside>
+              <section class="workbench">
+                <div class="workbench-head">
+                  <div>
+                    <div class="selection-label">书籍档案</div>
+                    <div class="selection-title">Metadata & Cover</div>
+                  </div>
+                  <div class="segmented"><span class="selected">预览</span><span>可视化</span><span>源码</span></div>
+                </div>
+                <div class="metadata-layout">
+                  <div class="metadata-sheet">
+                    <div class="cover">旧港<br />回声</div>
+                    <div class="record">
+                      <h2>旧港回声</h2>
+                      <p>林知远 · zh-CN · urn:uuid:fb-2026-001</p>
+                      <div class="metrics">
+                        <div class="metric"><strong>18</strong><span>章节</span></div>
+                        <div class="metric"><strong>42</strong><span>资源</span></div>
+                        <div class="metric"><strong>3</strong><span>待修复</span></div>
+                        <div class="metric"><strong>1.2MB</strong><span>封面</span></div>
+                      </div>
+                      <div class="metadata-note"><strong>封面资源已识别</strong><span>cover.html 和 manifest 中的 cover image 已关联，可直接在右侧替换。</span></div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <aside class="inspector">
+                <div class="inspector-title"><span class="toolbar-icon-button">‹</span>Metadata & Cover</div>
+                <div class="details">
+                  <div class="cover" style="width: 124px; height: 176px; font-size: 18px; justify-self: center;">旧港<br />回声</div>
+                  <div class="detail"><small>Title</small><span>旧港回声</span></div>
+                  <div class="detail"><small>Author</small><span>林知远</span></div>
+                  <div class="detail"><small>Language</small><span>zh-CN</span></div>
+                  <div class="hero-action" style="justify-content: center">保存 metadata</div>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">05 Reading Mode</h2>
+        <div class="artboard">
+          <div class="shell">
+            <div class="toolbar">
+              <div class="brand"><span class="brand-mark"></span>Ficbase Editor</div>
+              <div class="toolbar-spacer"></div>
+              <div class="toolbar-actions">
+                <span class="toolbar-icon-button active">目</span>
+                <span class="mini-button">退出阅读</span>
+                <span class="toolbar-icon-button">中</span>
+              </div>
+            </div>
+            <div class="workspace reading">
+              <aside class="sidebar">
+                <div class="sidebar-head">
+                  <div class="panel-kicker">Book Structure</div>
+                  <div class="search"><span>⌕</span><span>搜索章节</span></div>
+                </div>
+                <div class="resource-tree">
+                  <div class="tree-row"><span>▾</span><span class="tree-icon">T</span><span class="tree-copy"><strong>前言</strong><small>text/preface.xhtml</small></span></div>
+                  <div class="tree-row active"><span>▾</span><span class="tree-icon">T</span><span class="tree-copy"><strong>第一章 伊恩</strong><small>text/chapter-01.xhtml</small></span></div>
+                </div>
+              </aside>
+              <section class="workbench">
+                <div class="workbench-head">
+                  <div>
+                    <div class="selection-label">阅读模式</div>
+                    <div class="selection-title">第一章 伊恩</div>
+                  </div>
+                </div>
+                <div class="paper-wrap">
+                  <article class="reader-paper narrow">
+                    <h2>第一章 伊恩</h2>
+                    <div class="ornament"></div>
+                    <p>窗外的雨声很轻，像有人在旧纸页边缘反复摩挲。伊恩把封面重新放回桌面，确认目录里的章节顺序终于和阅读顺序一致。</p>
+                    <p>这本书还有一些需要修复的地方：缺失的公共样式、过长的标题、以及几张被错误引用的图片。</p>
+                    <p>他选中文字，在句子下方添了一条<span class="annotation">浅绿色虚线注释</span>。</p>
+                  </article>
+                </div>
+              </section>
+              <aside class="inspector">
+                <div class="inspector-title">目录</div>
+                <div class="toc-list">
+                  <span class="toc-item">前言</span>
+                  <span class="toc-item active">第一章 伊恩</span>
+                  <span class="toc-item">第二章 旧港</span>
+                  <span class="toc-item">第三章 浅眠</span>
+                  <span class="toc-item">第四章 眠粉</span>
+                  <span class="toc-item">第五章 回声</span>
+                </div>
+                <div class="toc-actions">
+                  <span class="hero-action secondary" style="justify-content: center">上一章</span>
+                  <span class="hero-action" style="justify-content: center">下一章</span>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="token-board">
+        <div>
+          <h2>Design Tokens & Button Components</h2>
+          <p>
+            新按钮语言：主动作可见但不抢正文，导入/导出保持 split affordance，右侧下拉只占细窄区域。
+          </p>
+        </div>
+        <div class="swatch-grid">
+          <div class="color-card"><div class="color-chip" style="background: #fffdf7"></div><strong>Paper</strong><span>#FFFDF7</span></div>
+          <div class="color-card"><div class="color-chip" style="background: #f8faf4"></div><strong>App bg</strong><span>#F8FAF4</span></div>
+          <div class="color-card"><div class="color-chip" style="background: #fffefb"></div><strong>Surface</strong><span>#FFFEFB</span></div>
+          <div class="color-card"><div class="color-chip" style="background: #269b70"></div><strong>Mint</strong><span>#269B70</span></div>
+          <div class="color-card"><div class="color-chip" style="background: #e4f4eb"></div><strong>Mint soft</strong><span>#E4F4EB</span></div>
+          <div class="color-card"><div class="color-chip" style="background: #26332f"></div><strong>Ink</strong><span>#26332F</span></div>
+          <div class="color-card"><div class="color-chip" style="background: #fff7df"></div><strong>Warn</strong><span>#FFF7DF</span></div>
+          <div class="color-card"><div class="color-chip" style="background: #f3e8d4"></div><strong>Cover tan</strong><span>#F3E8D4</span></div>
+        </div>
+        <div class="action-shelf" style="width: max-content">
+          <div class="split-action">
+            <span class="action-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M12 4v10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                <path
+                  d="M8 10l4 4 4-4"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M5 14v3.5A2.5 2.5 0 0 0 7.5 20h9A2.5 2.5 0 0 0 19 17.5V14"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </span>
+            <span class="action-main">导入</span>
+            <span class="action-format">EPUB/TXT</span>
+            <span class="action-chevron">
+              <svg class="chevron-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path
+                  d="M4.75 6.25L8 9.75l3.25-3.5"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+          </div>
+          <div class="split-action primary">
+            <span class="action-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M12 4v10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                <path
+                  d="M8 8l4-4 4 4"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M5 14v3.5A2.5 2.5 0 0 0 7.5 20h9A2.5 2.5 0 0 0 19 17.5V14"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </span>
+            <span class="action-main">导出</span>
+            <span class="action-format">EPUB</span>
+            <span class="action-chevron">
+              <svg class="chevron-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path
+                  d="M4.75 6.25L8 9.75l3.25-3.5"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

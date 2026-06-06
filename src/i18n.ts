@@ -64,6 +64,9 @@ const messages: Record<Locale, Messages> = {
     "empty.noMatchingManifest": "没有匹配的资源",
     "empty.noResourceSelected": "未选择资源",
     "empty.noTemplateImage": "未导入图片",
+    "empty.importTitle": "导入一本书开始编辑",
+    "empty.importDescription":
+      "Ficbase 会解析 EPUB/TXT 的章节、样式、图片与元数据，并把它们整理成可编辑的书籍结构。",
     "empty.openForManifest": "导入 EPUB 或 TXT 后查看资源清单",
     "empty.selectMetadata": "选择 OPF 或 XML 元数据资源后，可以编辑书籍元数据并查看封面。",
     "field.author": "作者",
@@ -236,6 +239,9 @@ const messages: Record<Locale, Messages> = {
     "empty.noMatchingManifest": "No matching manifest items",
     "empty.noResourceSelected": "No resource selected",
     "empty.noTemplateImage": "No image imported",
+    "empty.importTitle": "Import a book to start editing",
+    "empty.importDescription":
+      "Ficbase parses EPUB/TXT chapters, styles, images, and metadata into an editable book structure.",
     "empty.openForManifest": "Import an EPUB or TXT file to inspect its manifest",
     "empty.selectMetadata":
       "Select an OPF or XML metadata resource to edit book metadata and inspect the cover.",

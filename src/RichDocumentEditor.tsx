@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Extension } from "@tiptap/core";
+import type { MouseEvent as ReactMouseEvent } from "react";
+import type { Editor } from "@tiptap/core";
+import { Extension, Mark, mergeAttributes } from "@tiptap/core";
 import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
 import Image from "@tiptap/extension-image";
@@ -20,6 +22,7 @@ import {
   ImageUp,
   Italic,
   Link as LinkIcon,
+  MessageSquare,
   PaintBucket,
   Palette,
   Pilcrow,
@@ -35,6 +38,18 @@ const richTextBackgroundColors = ["#fff1a8", "#d7f5e5", "#dceaff", "#fde2db", "#
 const imageAlignments = ["left", "center", "right"] as const;
 
 type ImageAlignment = (typeof imageAlignments)[number];
+type AnnotationMenu = {
+  x: number;
+  y: number;
+  from: number;
+  to: number;
+  hasSelection: boolean;
+};
+type AnnotationDialog = {
+  from: number;
+  to: number;
+  note: string;
+};
 
 const InlineStyle = Extension.create({
   name: "inlineStyle",
@@ -93,6 +108,44 @@ const RichImage = Image.extend({
   },
 });
 
+const Annotation = Mark.create({
+  name: "annotation",
+
+  inclusive: false,
+
+  addAttributes() {
+    return {
+      note: {
+        default: "",
+        parseHTML: (element) => element.getAttribute("data-note") ?? element.getAttribute("title") ?? "",
+        renderHTML: (attributes) => {
+          const note = normalizeAnnotationNote(attributes.note);
+          return note ? { "data-note": note, title: note } : {};
+        },
+      },
+    };
+  },
+
+  parseHTML() {
+    return [
+      { tag: "span.ficbase-annotation" },
+      { tag: "[data-ficbase-annotation]" },
+    ];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    return [
+      "span",
+      mergeAttributes(HTMLAttributes, {
+        class: ["ficbase-annotation", HTMLAttributes.class].filter(Boolean).join(" "),
+        "data-ficbase-annotation": "true",
+        tabindex: "0",
+      }),
+      0,
+    ];
+  },
+});
+
 type RichDocumentEditorProps = {
   className?: string;
   documentHtml: string;
@@ -114,11 +167,15 @@ export function RichDocumentEditor({
   const onDocumentHtmlChangeRef = useRef(onDocumentHtmlChange);
   const bodyStyleRef = useRef(initialShell.bodyStyle);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const annotationMenuRef = useRef<HTMLDivElement | null>(null);
   const [bodyStyle, setBodyStyle] = useState(initialShell.bodyStyle);
   const [textColor, setTextColor] = useState(richTextColors[0]);
   const [backgroundColor, setBackgroundColor] = useState(richTextBackgroundColors[0]);
   const [fontSize, setFontSize] = useState("16px");
   const [lineHeight, setLineHeight] = useState("1.8");
+  const [annotationMenu, setAnnotationMenu] = useState<AnnotationMenu | null>(null);
+  const [annotationDialog, setAnnotationDialog] = useState<AnnotationDialog | null>(null);
+  const [hasTextSelection, setHasTextSelection] = useState(false);
 
   const editor = useEditor({
     extensions: [
@@ -129,6 +186,7 @@ export function RichDocumentEditor({
       TextStyle,
       InlineStyle,
       BlockStyle,
+      Annotation,
       TiptapItalic.configure({ HTMLAttributes: { style: "font-style: italic;" } }),
       Color,
       Highlight.configure({ multicolor: true }),
@@ -156,6 +214,9 @@ export function RichDocumentEditor({
     onUpdate: ({ editor }) => {
       emitChange(editor.getHTML(), bodyStyleRef.current);
     },
+    onSelectionUpdate: ({ editor }) => {
+      setHasTextSelection(hasAnnotatableSelection(editor));
+    },
   });
 
   useEffect(() => {
@@ -175,6 +236,33 @@ export function RichDocumentEditor({
     setBodyStyle(shell.bodyStyle);
     editor.commands.setContent(shell.bodyHtml, { emitUpdate: false });
   }, [documentHtml, editor]);
+
+  useEffect(() => {
+    if (!annotationMenu) return;
+
+    function closeMenu(event: MouseEvent) {
+      if (annotationMenuRef.current?.contains(event.target as Node)) return;
+      setAnnotationMenu(null);
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setAnnotationMenu(null);
+    }
+
+    function closeOnBlur() {
+      setAnnotationMenu(null);
+    }
+
+    window.addEventListener("click", closeMenu);
+    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("blur", closeOnBlur);
+
+    return () => {
+      window.removeEventListener("click", closeMenu);
+      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("blur", closeOnBlur);
+    };
+  }, [annotationMenu]);
 
   const scopedStyleText = useMemo(
     () => shellRef.current.styles.map(scopeVisualEditorCss).join("\n"),
@@ -245,6 +333,55 @@ export function RichDocumentEditor({
     }
     const level = Number(value.replace("heading-", "")) as 1 | 2 | 3;
     chain.toggleHeading({ level }).run();
+  }
+
+  function selectionRange() {
+    if (!editor) return null;
+    const { from, to, empty } = editor.state.selection;
+    return { from, to, hasSelection: !empty && from !== to && hasAnnotatableSelection(editor) };
+  }
+
+  function addAnnotation(range = selectionRange()) {
+    if (!editor || !range?.hasSelection) return;
+
+    setAnnotationMenu(null);
+    setAnnotationDialog({ from: range.from, to: range.to, note: "" });
+  }
+
+  function confirmAnnotation() {
+    if (!editor || !annotationDialog) return;
+    const note = normalizeAnnotationNote(annotationDialog.note);
+    if (!note) {
+      editor.chain().focus().setTextSelection({ from: annotationDialog.from, to: annotationDialog.to }).run();
+      return;
+    }
+
+    editor
+      .chain()
+      .focus()
+      .setTextSelection({ from: annotationDialog.from, to: annotationDialog.to })
+      .setMark("annotation", { note })
+      .run();
+    setAnnotationDialog(null);
+    setHasTextSelection(false);
+  }
+
+  function openEditorContextMenu(event: ReactMouseEvent<HTMLDivElement>) {
+    if (!editor) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const range = selectionRange();
+    const width = 220;
+    const height = 56;
+    setAnnotationMenu({
+      x: Math.min(event.clientX, window.innerWidth - width - 8),
+      y: Math.min(event.clientY, window.innerHeight - height - 8),
+      from: range?.from ?? 0,
+      to: range?.to ?? 0,
+      hasSelection: range?.hasSelection ?? false,
+    });
   }
 
   const pageBackground = getStyleProperty(bodyStyle, "background-color") || "#ffffff";
@@ -390,6 +527,15 @@ export function RichDocumentEditor({
         <button type="button" onClick={() => editor?.chain().focus().toggleLink({ href: "" }).run()} title={t("format.link")}>
           <LinkIcon size={15} aria-hidden="true" />
         </button>
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => addAnnotation()}
+          disabled={!hasTextSelection}
+          title={t("action.addAnnotation")}
+        >
+          <MessageSquare size={15} aria-hidden="true" />
+        </button>
         <input
           ref={imageInputRef}
           type="file"
@@ -401,12 +547,78 @@ export function RichDocumentEditor({
           }}
         />
       </div>
-      <div className="visual-editor-frame rich-document-frame" title={title}>
+      <div className="visual-editor-frame rich-document-frame" title={title} onContextMenu={openEditorContextMenu}>
         {scopedStyleText && <style>{scopedStyleText}</style>}
         <EditorContent editor={editor} style={{ backgroundColor: pageBackground }} />
       </div>
+      {annotationMenu && (
+        <div
+          ref={annotationMenuRef}
+          className="context-menu annotation-menu"
+          style={{ left: annotationMenu.x, top: annotationMenu.y }}
+          onContextMenu={(event) => event.preventDefault()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            disabled={!annotationMenu.hasSelection}
+            onClick={() => addAnnotation(annotationMenu)}
+          >
+            <MessageSquare size={14} aria-hidden="true" />
+            {t("action.addAnnotation")}
+          </button>
+        </div>
+      )}
+      {annotationDialog && (
+        <div className="annotation-dialog" role="dialog" aria-modal="true" aria-label={t("action.addAnnotation")}>
+          <button
+            type="button"
+            className="annotation-dialog-backdrop"
+            onClick={() => setAnnotationDialog(null)}
+          />
+          <form
+            className="annotation-dialog-card"
+            onSubmit={(event) => {
+              event.preventDefault();
+              confirmAnnotation();
+            }}
+          >
+            <label>
+              <span>{t("prompt.annotation")}</span>
+              <textarea
+                value={annotationDialog.note}
+                onChange={(event) =>
+                  setAnnotationDialog((current) =>
+                    current ? { ...current, note: event.currentTarget.value } : current,
+                  )
+                }
+                autoFocus
+              />
+            </label>
+            <div className="annotation-dialog-actions">
+              <button type="button" className="button secondary" onClick={() => setAnnotationDialog(null)}>
+                {t("action.cancel")}
+              </button>
+              <button type="submit" className="button primary" disabled={!annotationDialog.note.trim()}>
+                <MessageSquare size={15} aria-hidden="true" />
+                {t("action.addAnnotation")}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
+}
+
+function normalizeAnnotationNote(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function hasAnnotatableSelection(editor: Editor) {
+  const { from, to, empty } = editor.state.selection;
+  if (empty || from === to) return false;
+  return editor.state.doc.textBetween(from, to, " ").trim().length > 0;
 }
 
 function parseDocumentShell(sourceHtml: string) {

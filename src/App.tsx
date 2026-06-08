@@ -413,12 +413,7 @@ function App() {
 
   useEffect(() => {
     if (!selectedResource || !content) return;
-    const title = getReaderTitle(selectedResource, content, "", t("label.cover"));
-    if (!title) return;
-
-    setReaderTitles((current) =>
-      current[selectedResource.path] === title ? current : { ...current, [selectedResource.path]: title },
-    );
+    refreshReaderTitle(selectedResource, content);
   }, [content, selectedResource, t]);
 
   useEffect(() => {
@@ -426,7 +421,10 @@ function App() {
 
     let cancelled = false;
     const missingResources = prioritizeReaderResources(readerResources, selectedPath)
-      .filter((resource) => !readerTitles[resource.path])
+      .filter((resource) => {
+        const title = readerTitles[resource.path];
+        return !title || title === getReaderFallbackTitle(resource, t("label.cover"));
+      })
       .slice(0, 16);
     if (missingResources.length === 0) return;
 
@@ -1377,9 +1375,21 @@ function App() {
     setStatus({ key: "status.loaded", params: { name: resource.name } });
   }
 
+  function refreshReaderTitle(resource: ResourceItem, html: string) {
+    const title = getReaderTitle(resource, html, "", t("label.cover"));
+    if (!title) return;
+
+    setReaderTitles((current) =>
+      current[resource.path] === title ? current : { ...current, [resource.path]: title },
+    );
+  }
+
   async function loadReaderCacheEntry(resource: ResourceItem) {
     const cached = readerCacheRef.current.get(resource.path);
-    if (cached && cached.styleKey === readerStyleKey) return cached;
+    if (cached && cached.styleKey === readerStyleKey) {
+      refreshReaderTitle(resource, cached.content);
+      return cached;
+    }
 
     try {
       const text = await invoke<string>("read_text_resource", { path: resource.path });
@@ -1391,12 +1401,7 @@ function App() {
       const entry = { content: text, previewHtml: preview, styleKey: readerStyleKey };
       readerCacheRef.current.set(resource.path, entry);
 
-      const title = getReaderTitle(resource, text, "", t("label.cover"));
-      if (title) {
-        setReaderTitles((current) =>
-          current[resource.path] === title ? current : { ...current, [resource.path]: title },
-        );
-      }
+      refreshReaderTitle(resource, text);
 
       return entry;
     } catch (err) {
@@ -2816,7 +2821,7 @@ function extractReaderTitleFromHtml(html: string) {
 
   const headingCandidates = Array.from(doc.body.querySelectorAll("h1, h2, h3, h4, h5, h6"))
     .flatMap((element) => textCandidatesFromElement(element))
-    .filter(isLikelyReaderTitleCandidate);
+    .filter((value) => isLikelyReaderTitleCandidate(value, 80));
 
   const titleFromHeadings = composeReaderTitle(headingCandidates);
   if (titleFromHeadings) return titleFromHeadings;
@@ -2825,7 +2830,7 @@ function extractReaderTitleFromHtml(html: string) {
     doc.body.querySelectorAll("p, div, section, article, header, center, span, strong, b"),
   )
     .flatMap((element) => textCandidatesFromElement(element))
-    .filter(isLikelyReaderTitleCandidate);
+    .filter((value) => isLikelyReaderTitleCandidate(value, 40));
 
   return composeReaderTitle(dedupeTexts(blockCandidates));
 }
@@ -2845,8 +2850,8 @@ function normalizeReaderTitleText(value: string) {
     .trim();
 }
 
-function isLikelyReaderTitleCandidate(value: string) {
-  if (!value || value.length > 40) return false;
+function isLikelyReaderTitleCandidate(value: string, maxLength: number) {
+  if (!value || Array.from(value).length > maxLength) return false;
   if (/^[\[\(（【]?\d+[\]\)）】]?$/.test(value)) return false;
   return true;
 }
